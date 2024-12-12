@@ -1,0 +1,220 @@
+import TradingView/ta/5
+
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © constantin8995
+
+//@version=5
+period_envelope = input.int(defval = 11, title = "Envelope Period", minval = 2, maxval = 1000, step = 1, group = "Envelope")
+envelope = input.float(defval = 3, title = "Envelope", minval = 1, maxval = 100, step = 0.1, group = "Envelope")
+rsi_bool = input.bool(defval = false, title = "RSI on/off", group = "RSI")
+rsi_period = input.int(defval = 11, title = "RSI Period", minval = 2, maxval = 1000, step = 1, group = "RSI")
+rsi_smooth = input.int(defval = 14, title = "Smooth RSI", minval = 2, maxval = 1000, step = 1, group = "RSI")
+stoch_bool = input.bool(defval = false, title = "Stochastic on/off", group = "Stochastic")
+k_period = input.int(defval = 22, title = "%K Period", minval = 2, maxval = 1000, step = 1, group = "Stochastic")
+k_smooth = input.int(defval = 3, title = "%K Smooth", minval = 2, maxval = 1000, step = 1, group = "Stochastic")
+d_smooth = input.int(defval = 3, title = "%D Smooth", minval = 2, maxval = 1000, step = 1, group = "Stochastic")
+atr_bool = input.bool(defval = false, title = "ATR on/off", group = "Moneymanagement")
+atr_period = input.int(defval = 3, title = "ATR Period", minval = 2, maxval = 1000, step = 1, group = "Moneymanagement")
+atr_factor = input.float(defval = 1.5, title = "ATR Factor", step = 0.1, group = "Moneymanagement")
+money = input.float(defval = 1000000, title = "Money", step = 10000, group = "Moneymanagement")
+
+backtesting_bool = input.bool(defval = true, title = "True -> Backtest // False -> Forward")
+
+// input year, month, date of the backtesting period
+backtest_start_date = input.int(defval = 1, title = "Backtest_Start_Date", minval = 1, maxval = 31, step = 1, group = "Backtest")
+backtest_start_month = input.int(defval = 4, title = "Backtest_Start_Month", minval = 1, maxval = 12, step = 1, group = "Backtest")
+backtest_start_year = input.int(defval = 2022, title = "Backtest_Start_Year", minval = 2000, maxval = 2100, step = 1, group = "Backtest")
+backtest_end_date = input.int(defval = 1, title = "Backtest_End_Date", minval = 1, maxval = 31, step = 1, group = "Backtest")
+backtest_end_month = input.int(defval = 10, title = "Backtest_End_Month", minval = 1, maxval = 12, step = 1, group = "Backtest")
+backtest_end_year = input.int(defval = 2022, title = "Backtest_End_Year", minval = 2000, maxval = 2100, step = 1, group = "Backtest")
+
+// input year, month, date of the forward period
+forward_start_date = input.int(defval = 1, title = "Forward_Start_Date", minval = 1, maxval = 31, step = 1, group = "Forward")
+forward_start_month = input.int(defval = 4, title = "Forward_Start_Month", minval = 1, maxval = 12, step = 1, group = "Forward")
+forward_start_year = input.int(defval = 2022, title = "Forward_Start_Year", minval = 2000, maxval = 2100, step = 1, group = "Forward")
+forward_end_date = input.int(defval = 1, title = "Forward_End_Date", minval = 1, maxval = 31, step = 1, group = "Forward")
+forward_end_month = input.int(defval = 4, title = "Forward_End_Month", minval = 1, maxval = 12, step = 1, group = "Forward")
+forward_end_year = input.int(defval = 2023, title = "Forward_End_Year", minval = 2000, maxval = 2100, step = 1, group = "Forward")
+
+data_range_backtest = ((backtesting_bool == true and time > timestamp(syminfo.timezone,  year = backtest_start_year, month = backtest_start_month, day = backtest_start_date, minute = 0, hour = 0, second = 0) and time < timestamp(syminfo.timezone,  year = backtest_end_year, month = backtest_end_month, day = backtest_end_date, minute = 0, hour = 0, second = 0)))
+data_range_forward = ((backtesting_bool == false and time > timestamp(syminfo.timezone,  year = forward_start_year, month = forward_start_month, day = forward_start_date, minute = 0, hour = 0, second = 0) and time < timestamp(syminfo.timezone,  year = forward_end_year, month = forward_end_month, day = forward_end_date, minute = 0, hour = 0, second = 0)))
+
+strategy(title = "Envelope WMA + RSI + Stoch + ATR", shorttitle = "Envelope WMA + RSI + Stoch + ATR", overlay = true)
+sma_ = ta.wma(ohlc4, period_envelope)[math.round((period_envelope - 1) / 3)]
+rsi_ = ta.rsi(ohlc4, rsi_period) 
+wma_rsi_ = ta.wma(rsi_, rsi_smooth)
+up_rsi_ = 70.0
+down_rsi_ = 30.0
+up_stoch_ = 70.0
+down_stoch_ = 30.0
+k = ta.stoch(ohlc4, high, low, k_period)
+k_ = ta.wma(k, k_smooth) 
+d_ = ta.wma(k_, d_smooth)
+atr_short_ = ta.highest(atr_period) - atr_factor * ta.atr(atr_period)
+atr_long_ = ta.lowest(atr_period) + atr_factor * ta.atr(atr_period)
+
+rsi_true_condition = wma_rsi_ < up_rsi_ and wma_rsi_ > down_rsi_ and rsi_bool == true
+rsi_false_condition = rsi_bool == false
+stoch_true_condition = d_ < up_stoch_ and d_ > down_stoch_ and stoch_bool == true
+stoch_false_condition = stoch_bool == false
+
+// exit
+// long position description
+if strategy.position_entry_name == "Long Position" and data_range_backtest or data_range_forward
+    if atr_bool == true
+        strategy.exit(id = "Long Position Stop", from_entry = "Long Position", qty_percent = 100, stop = atr_long_)
+    if high > sma_*(1.0 + envelope*0.01)
+        strategy.cancel_all()
+        strategy.close(id = "Long Position", comment = "Long Position Exit", qty_percent = 100)
+
+// short position description
+if strategy.position_entry_name == "Short Position" and data_range_backtest or data_range_forward
+    if atr_bool == true
+        strategy.exit(id = "Short Position Stop", from_entry = "Short Position", qty_percent = 100, stop = atr_short_)
+    if low < sma_*(1.0 - envelope*0.01)
+        strategy.cancel_all()
+        strategy.close(id = "Short Position", comment = "Short Position Exit", qty_percent = 100)
+
+
+// classical entry
+// long position description
+if low < sma_*(1.0 - envelope*0.01)
+    if open > sma_*(1.0 - envelope*0.01) and open < sma_*(1.0 + envelope*0.01) and open - sma_*(1.0 - envelope*0.01) < sma_ - open
+        if close > sma_*(1.0 - envelope*0.01) and close < sma_*(1.0 + envelope*0.01) and close - sma_*(1.0 - envelope*0.01) < sma_ - close
+            if rsi_true_condition and stoch_true_condition
+                if strategy.position_entry_name != "Long Position" and data_range_backtest or data_range_forward
+                    if strategy.position_entry_name == "Short Position"
+                        strategy.close(id = "Short Position", comment = "Short Exit", qty_percent = 100)
+                        strategy.entry(id = "Long Position", direction = strategy.long, qty = money / close)
+                    else
+                        strategy.entry(id = "Long Position", direction = strategy.long, qty = money / close)
+            else
+                if rsi_false_condition and stoch_true_condition
+                    if strategy.position_entry_name != "Long Position" and data_range_backtest or data_range_forward
+                        if strategy.position_entry_name == "Short Position"
+                            strategy.close(id = "Short Position", comment = "Short Exit", qty_percent = 100)
+                            strategy.entry(id = "Long Position", direction = strategy.long, qty = money / close)
+                        else
+                            strategy.entry(id = "Long Position", direction = strategy.long, qty = money / close)
+                if rsi_true_condition and stoch_false_condition
+                    if strategy.position_entry_name != "Long Position" and data_range_backtest or data_range_forward
+                        if strategy.position_entry_name == "Short Position"
+                            strategy.close(id = "Short Position", comment = "Short Exit", qty_percent = 100)
+                            strategy.entry(id = "Long Position", direction = strategy.long, qty = money / close)
+                        else
+                            strategy.entry(id = "Long Position", direction = strategy.long, qty = money / close)
+                if rsi_false_condition and stoch_false_condition
+                    if strategy.position_entry_name != "Long Position" and data_range_backtest or data_range_forward
+                        if strategy.position_entry_name == "Short Position"
+                            strategy.close(id = "Short Position", comment = "Short Exit", qty_percent = 100)
+                            strategy.entry(id = "Long Position", direction = strategy.long, qty = money / close)
+                        else
+                            strategy.entry(id = "Long Position", direction = strategy.long, qty = money / close)
+
+// short position description
+if high > sma_*(1.0 + envelope*0.01)
+    if open > sma_*(1.0 - envelope*0.01) and open < sma_*(1.0 + envelope*0.01) and open - sma_ > sma_*(1.0 + envelope*0.01) - open
+        if close > sma_*(1.0 - envelope*0.01) and close < sma_*(1.0 + envelope*0.01) and close - sma_ > sma_*(1.0 + envelope*0.01) - close
+            if rsi_true_condition and stoch_true_condition
+                if strategy.position_entry_name != "Short Position" and data_range_backtest or data_range_forward
+                    if strategy.position_entry_name == "Long Position"
+                        strategy.close(id = "Long Position", comment = "Long Exit", qty_percent = 100)
+                        strategy.entry(id = "Short Position", direction = strategy.short, qty = money / close)
+                    else
+                        strategy.entry(id = "Short Position", direction = strategy.short, qty = money / close)
+            else
+                if rsi_false_condition and stoch_true_condition
+                    if strategy.position_entry_name != "Short Position" and data_range_backtest or data_range_forward
+                        if strategy.position_entry_name == "Long Position"
+                            strategy.close(id = "Long Position", comment = "Long Exit", qty_percent = 100)
+                            strategy.entry(id = "Short Position", direction = strategy.short, qty = money / close)
+                        else
+                            strategy.entry(id = "Short Position", direction = strategy.short, qty = money / close)
+                if rsi_true_condition and stoch_false_condition
+                    if strategy.position_entry_name != "Short Position" and data_range_backtest or data_range_forward
+                        if strategy.position_entry_name == "Long Position"
+                            strategy.close(id = "Long Position", comment = "Long Exit", qty_percent = 100)
+                            strategy.entry(id = "Short Position", direction = strategy.short, qty = money / close)
+                        else
+                            strategy.entry(id = "Short Position", direction = strategy.short, qty = money / close)
+                if rsi_false_condition and stoch_false_condition
+                    if strategy.position_entry_name != "Short Position" and data_range_backtest or data_range_forward
+                        if strategy.position_entry_name == "Long Position"
+                            strategy.close(id = "Long Position", comment = "Long Exit", qty_percent = 100)
+                            strategy.entry(id = "Short Position", direction = strategy.short, qty = money / close)
+                        else
+                            strategy.entry(id = "Short Position", direction = strategy.short, qty = money / close)
+                    
+
+// risky entry
+// long position description
+if open[1] < sma_[1]*(1.0 - envelope*0.01) and close[1] > sma_[1]*(1.0 - envelope*0.01) 
+    if open > sma_*(1.0 - envelope*0.01) and open < sma_*(1.0 + envelope*0.01) and open - sma_*(1.0 - envelope*0.01) < sma_ - open
+        if close > sma_*(1.0 - envelope*0.01) and close < sma_*(1.0 + envelope*0.01) and close - sma_*(1.0 - envelope*0.01) < sma_ - close
+            if rsi_true_condition and stoch_true_condition
+                if strategy.position_entry_name != "Long Position" and data_range_backtest or data_range_forward
+                    if strategy.position_entry_name == "Short Position"
+                        strategy.close(id = "Short Position", comment = "Short Exit", qty_percent = 100)
+                        strategy.entry(id = "Long Position", direction = strategy.long, qty = money / close)
+                    else
+                        strategy.entry(id = "Long Position", direction = strategy.long, qty = money / close)
+            else
+                if rsi_false_condition and stoch_true_condition
+                    if strategy.position_entry_name != "Long Position" and data_range_backtest or data_range_forward
+                        if strategy.position_entry_name == "Short Position"
+                            strategy.close(id = "Short Position", comment = "Short Exit", qty_percent = 100)
+                            strategy.entry(id = "Long Position", direction = strategy.long, qty = money / close)
+                        else
+                            strategy.entry(id = "Long Position", direction = strategy.long, qty = money / close)
+                if rsi_true_condition and stoch_false_condition
+                    if strategy.position_entry_name != "Long Position" and data_range_backtest or data_range_forward
+                        if strategy.position_entry_name == "Short Position"
+                            strategy.close(id = "Short Position", comment = "Short Exit", qty_percent = 100)
+                            strategy.entry(id = "Long Position", direction = strategy.long, qty = money / close)
+                        else
+                            strategy.entry(id = "Long Position", direction = strategy.long, qty = money / close)
+                if rsi_false_condition and stoch_false_condition
+                    if strategy.position_entry_name != "Long Position" and data_range_backtest or data_range_forward
+                        if strategy.position_entry_name == "Short Position"
+                            strategy.close(id = "Short Position", comment = "Short Exit", qty_percent = 100)
+                            strategy.entry(id = "Long Position", direction = strategy.long, qty = money / close)
+                        else
+                            strategy.entry(id = "Long Position", direction = strategy.long, qty = money / close)
+
+//short position description
+if open[1] > sma_*(1.0 + envelope*0.01)[1] and close[1] < sma_*(1.0 + envelope*0.01)[1]
+    if open > sma_*(1.0 - envelope*0.01) and open < sma_*(1.0 + envelope*0.01) and open - sma_ > sma_*(1.0 + envelope*0.01) - open
+        if close > sma_*(1.0 - envelope*0.01) and close < sma_*(1.0 + envelope*0.01) and close - sma_ > sma_*(1.0 + envelope*0.01) - close
+            if rsi_true_condition and stoch_true_condition
+                if strategy.position_entry_name != "Short Position" and data_range_backtest or data_range_forward
+                    if strategy.position_entry_name == "Long Position"
+                        strategy.close(id = "Long Position", comment = "Long Exit", qty_percent = 100)
+                        strategy.entry(id = "Short Position", direction = strategy.short, qty = money / close)
+                    else
+                        strategy.entry(id = "Short Position", direction = strategy.short, qty = money / close)
+            else
+                if rsi_false_condition and stoch_true_condition
+                    if strategy.position_entry_name != "Short Position" and data_range_backtest or data_range_forward
+                        if strategy.position_entry_name == "Long Position"
+                            strategy.close(id = "Long Position", comment = "Long Exit", qty_percent = 100)
+                            strategy.entry(id = "Short Position", direction = strategy.short, qty = money / close)
+                        else
+                            strategy.entry(id = "Short Position", direction = strategy.short, qty = money / close)
+                if rsi_true_condition and stoch_false_condition
+                    if strategy.position_entry_name != "Short Position" and data_range_backtest or data_range_forward
+                        if strategy.position_entry_name == "Long Position"
+                            strategy.close(id = "Long Position", comment = "Long Exit", qty_percent = 100)
+                            strategy.entry(id = "Short Position", direction = strategy.short, qty = money / close)
+                        else
+                            strategy.entry(id = "Short Position", direction = strategy.short, qty = money / close)
+                if rsi_false_condition and stoch_false_condition
+                    if strategy.position_entry_name != "Short Position" and data_range_backtest or data_range_forward
+                        if strategy.position_entry_name == "Long Position"
+                            strategy.close(id = "Long Position", comment = "Long Exit", qty_percent = 100)
+                            strategy.entry(id = "Short Position", direction = strategy.short, qty = money / close)
+                        else
+                            strategy.entry(id = "Short Position", direction = strategy.short, qty = money / close)
+
+
+plot(series = sma_*(1.0 + envelope*0.01), title = "UP", color = color.rgb(42, 252, 0), linewidth = 1)
+plot(series = sma_*(1.0 - envelope*0.01), title = "DOWN", color = color.rgb(255, 70, 70), linewidth = 1)
